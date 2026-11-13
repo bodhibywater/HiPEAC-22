@@ -1,0 +1,9 @@
+/build/
+/build-*/
+__pycache__/
+.pytest_cache/
+/data/
+/artifacts/
+/results/
+/m5out/
+*.pyc
