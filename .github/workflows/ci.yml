@@ -1,0 +1,22 @@
+name: Portable correctness
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python test dependencies
+        run: python -m pip install numpy pytest
+      - name: Build C++ kernels
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j2
+      - name: Test C++ correctness
+        run: ctest --test-dir build --output-on-failure
+      - name: Test NumPy reference
+        run: python -m pytest -q python/test_reference.py
+      - name: Native benchmark smoke test
+        run: |
+          ./build/snn_bench --inputs 8 --outputs 7 --steps 4 --mode dense --repeats 2
+          ./build/snn_bench --inputs 8 --outputs 7 --steps 4 --mode sparse --repeats 2
+          ./build/snn_bench --inputs 8 --outputs 7 --steps 4 --group 3 --mode sparse --repeats 2
