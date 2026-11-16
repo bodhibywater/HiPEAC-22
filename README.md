@@ -1,71 +1,40 @@
-# HiPEAC-22 — adaptive SNN inference on RISC-V
+# End-to-end MNIST SNN integration
 
-Research foundation for the HiPEAC SNN/RISC-V proposal. This is an **initial,
-reviewable implementation**, not a completed competition result.
+Adds two new files and a CMake target without touching existing kernel implementations:
 
-## What works now
+- `python/export_mnist_trace.py`: loads `artifacts/mnist_snn.pt` and held-out MNIST images, generates deterministic binary input spikes, and serialises trained weights plus **all per-timestep hidden/output spike outputs** from PyTorch.
+- `src/mnist_inference.cpp`: executes the full two-layer model for each image and timestep, verifies spike sequences/predictions against the exported PyTorch reference **outside** the measured region, then measures the entire network using `m5_reset_stats` / `m5_dump_stats`.
+- `setup_mnist_integration.py`: adds `snn_mnist` to existing CMake only once.
 
-- Portable C++ reference and sparse LIF kernels with identical dynamics.
-- Initial adjacent-group mean-state approximation (with explicit semantics).
-- Independent C++ and NumPy correctness tests.
-- Explicit RVV dense kernel guarded by `__riscv_vector` (not yet run on RISC-V).
-- Native wall-clock benchmarking and metadata-producing parameter sweeps.
-- Optional PyTorch MNIST surrogate-gradient training prototype.
-- gem5 RISC-V SE configuration **draft** (not locally executed).
-
-## Host quick start
+## From HiPEAC-22 repo root
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-ctest --test-dir build --output-on-failure
-python -m pip install numpy pytest
-python -m pytest -q python/test_reference.py
-./build/snn_bench --inputs 128 --outputs 128 --steps 64 --density 0.1 --mode sparse
-python scripts/sweep.py --bench build/snn_bench --output results/first_sweep.csv \
-  --shapes 128x128 --group 1 2 --density 0.01 0.1 0.5 --repeats 5
+python3 setup_mnist_integration.py
+source .venv/bin/activate
+python -m python.export_mnist_trace --checkpoint artifacts/mnist_snn.pt --samples 64 --output artifacts/mnist_trace.bin
+cmake -S . -B build-riscv-m5 -DSNN_GEM5=ON -DGEM5_ROOT="$HOME/gem5-sim"
+cmake --build build-riscv-m5 --target snn_mnist -j2
 ```
 
-The command writes **native wall-clock time**, not gem5 cycles. Do not use it
-as a processor architecture result.
-
-## Optional SNN training
+In `~/gem5-sim` run:
 
 ```bash
-python -m pip install torch torchvision
-python -m python.train_mnist --epochs 2 --steps 16 --seed 42
+./build/RISCV/gem5.opt \
+  --outdir="$HOME/HiPEAC-22/results/o3_mnist_fused_64" \
+  "$HOME/HiPEAC-22/gem5/run_o3.py" \
+  --binary "$HOME/HiPEAC-22/build-riscv-m5/snn_mnist" \
+  -- --trace "$HOME/HiPEAC-22/artifacts/mnist_trace.bin" \
+  --mode sparse_rvv_fused
 ```
 
-This downloads MNIST. The training model uses Bernoulli rate coding, hard
-spikes with sigmoid-surrogate backward gradients, and reset-to-zero LIF.
-Training hasn't been validated for useful test accuracy in CI; record the
-result you actually observe rather than assuming a target score.
+Run another mode (`sparse`, `rvv`, etc) with another `--outdir`. `--first-mode` and `--second-mode` allow different kernels per layer.
 
-## RISC-V / gem5 bring-up
+### Important controls
 
-The optional RVV path is in `src/kernels.cpp` and uses RVV 1.0 intrinsics. It
-must be compiled for `rv64gcv` using a RISC-V C++ cross compiler and linked
-against a matching RISC-V userspace. Cross-compiling **and running** the test
-suite on a RISC-V environment is a necessary follow-up.
-
-`gem5/run_se.py` is a starter configuration targeting the gem5 v25.1 stdlib
-API. It has not been executed here because no gem5 binary / RISC-V sysroot is
-available. Avoid presenting its results until verified end-to-end. Record the
-exact gem5 release/commit and `m5out/config.ini` to confirm RVV/VLEN settings.
-
-**Scientific protocol:** [docs/experimental_protocol.md](docs/experimental_protocol.md)
-
-**Project definition:** [docs/project.md](docs/project.md)  
-**Original roadmap:** [docs/roadmap.md](docs/roadmap.md)
-
-## Next research milestones
-
-1. Cross-compile and validate RVV results against scalar outputs in gem5 and,
-   if available, on the physical RISC-V board.
-2. Export a trained SNN's real weight matrices/spike traces; compare the C++
-   kernels against PyTorch step-by-step, including grouped-state accuracy.
-3. Add gem5 ROI markers and verify performance-stat extraction.
-4. Only then generate regime maps and train/calibrate the adaptive router;
-   compare against best static and hindsight-oracle baselines.
-
-No empirical speedups, accuracy guarantees, or energy savings are claimed yet.
+- Verification is strict and performed before gem5 ROI. Do not report speedups if reference_check is not PASS.
+- Input spikes and trained weights are fixed. No dataset I/O or weight transposition inside the ROI.
+- ROI measures complete two-layer inference over the selected sample count and timesteps, including activation conversion, membrane resets between images, allocations and classification counts.
+- The exported reference reports accuracy *on this subset*, not the full 10k-image test accuracy.
+- Simulated cycles reflect the configured O3CPU model, not measured RISC-V hardware throughput.
+- Transposition happens once per model load; for cold-start latency/short inference sessions, account for it separately.
+- If a PyTorch-vs-C++ mismatch appears, diagnose numerical ordering/threshold behaviour rather than disabling correctness checks.
