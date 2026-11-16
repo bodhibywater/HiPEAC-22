@@ -64,6 +64,8 @@ def main() -> None:
     parser.add_argument("--output", default="artifacts/mnist_trace.bin")
     parser.add_argument("--samples", type=int, default=64)
     parser.add_argument("--seed", type=int, default=20261115)
+    parser.add_argument("--input-major", action="store_true",
+                        help="Store weights pre-transposed, using SNNMNST2")
     args = parser.parse_args()
     if not 1 <= args.samples <= 10000:
         parser.error("--samples must be between 1 and 10000")
@@ -89,10 +91,12 @@ def main() -> None:
     correct = input_spike_count = hidden_spike_count = 0
     with target.open("wb") as file:
         # Header: magic + samples, steps, inputs, hidden, outputs + beta, threshold.
-        file.write(struct.pack("<8sIIIIIff", MAGIC, args.samples, steps, 784, hidden, 10, beta, threshold))
-        write_float32(file, model.fc1.weight)
+        magic = b"SNNMNST2" if args.input_major else MAGIC
+        file.write(struct.pack("<8sIIIIIff", magic, args.samples, steps, 784, hidden, 10, beta, threshold))
+        # Only the storage order changes: model weights and spike oracle are identical.
+        write_float32(file, model.fc1.weight.T if args.input_major else model.fc1.weight)
         write_float32(file, model.fc1.bias)
-        write_float32(file, model.fc2.weight)
+        write_float32(file, model.fc2.weight.T if args.input_major else model.fc2.weight)
         write_float32(file, model.fc2.bias)
 
         # Record the actual spike inputs once, never regenerate inside C++.
@@ -111,6 +115,7 @@ def main() -> None:
 
     print(json.dumps({
         "output": str(target), "samples": args.samples, "timesteps": steps,
+        "weight_layout": "input_major" if args.input_major else "output_major",
         "hidden": hidden, "reference_accuracy_on_subset": correct / args.samples,
         "realised_input_density": input_spike_count / (args.samples * steps * 784),
         "realised_hidden_density": hidden_spike_count / (args.samples * steps * hidden),

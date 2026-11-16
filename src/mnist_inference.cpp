@@ -31,6 +31,7 @@ struct Workload {
   std::vector<float> first_input_major, second_input_major;
   std::vector<Sample> samples;
   std::uint32_t steps = 0;
+  bool stored_input_major = false; // SNNMNST2 traces contain input-major weights.
 };
 
 struct Result {
@@ -69,9 +70,12 @@ Workload read_workload(const std::string& path) {
   std::ifstream file(path, std::ios::binary);
   if (!file) throw std::runtime_error("Cannot open MNIST trace: " + path);
   std::array<char, 8> magic{};
-  if (!file.read(magic.data(), magic.size()) ||
-      std::memcmp(magic.data(), "SNNMNST1", 8) != 0) {
-    throw std::runtime_error("Not an SNNMNST1 trace");
+  if (!file.read(magic.data(), magic.size())) {
+    throw std::runtime_error("Cannot read MNIST trace magic");
+  }
+  const bool stored_input_major = std::memcmp(magic.data(), "SNNMNST2", 8) == 0;
+  if (!stored_input_major && std::memcmp(magic.data(), "SNNMNST1", 8) != 0) {
+    throw std::runtime_error("Expected SNNMNST1 or SNNMNST2 trace");
   }
   const auto n = read_scalar<std::uint32_t>(file);
   const auto steps = read_scalar<std::uint32_t>(file);
@@ -87,6 +91,7 @@ Workload read_workload(const std::string& path) {
 
   Workload workload;
   workload.steps = steps;
+  workload.stored_input_major = stored_input_major;
   workload.first = snn::Layer{inputs, hidden,
       read_tensor<float>(file, std::size_t(inputs) * hidden),
       read_tensor<float>(file, hidden), beta, threshold};
@@ -131,6 +136,12 @@ std::vector<std::uint8_t> run_layer(
   if (mode == "sparse_rvv_fused") {
     return snn::step_sparse_rvv_fused(layer, transposed, spikes, state);
   }
+  if (mode == "sparse_rvv_fused_acc2") {
+    return snn::step_sparse_rvv_fused_multi(layer, transposed, spikes, state, 2);
+  }
+  if (mode == "sparse_rvv_fused_acc4") {
+    return snn::step_sparse_rvv_fused_multi(layer, transposed, spikes, state, 4);
+  }
   throw std::invalid_argument("Unknown inference mode: " + mode);
 }
 
@@ -143,9 +154,15 @@ Result infer(const Workload& w, const std::string& first_mode,
     snn::State first_state(w.first.outputs), second_state(w.second.outputs);
     std::vector<std::uint32_t> counts(w.second.outputs, 0);
     std::vector<float> hidden_input(w.first.outputs);
+    // For input-major traces, use the loaded weight buffer directly: no
+    // transpose and no duplicated weight matrix in memory.
+    const auto& first_vector_weights = w.stored_input_major
+        ? w.first.weights : w.first_input_major;
+    const auto& second_vector_weights = w.stored_input_major
+        ? w.second.weights : w.second_input_major;
 
     for (std::uint32_t t = 0; t < w.steps; ++t) {
-      const auto hidden = run_layer(first_mode, w.first, w.first_input_major,
+      const auto hidden = run_layer(first_mode, w.first, first_vector_weights,
                                     sample.inputs_by_time[t], first_state);
       for (std::size_t i = 0; i < hidden.size(); ++i) {
         result.hidden_spikes += hidden[i];
@@ -154,7 +171,7 @@ Result infer(const Workload& w, const std::string& first_mode,
         }
         hidden_input[i] = static_cast<float>(hidden[i]);
       }
-      const auto output = run_layer(second_mode, w.second, w.second_input_major,
+      const auto output = run_layer(second_mode, w.second, second_vector_weights,
                                     hidden_input, second_state);
       for (std::size_t i = 0; i < output.size(); ++i) {
         result.output_spikes += output[i];
@@ -178,7 +195,8 @@ Result infer(const Workload& w, const std::string& first_mode,
 // Restrict benchmark modes explicitly to avoid accidental scalar fallback.
 void validate_mode(const std::string& mode) {
   if (mode != "dense" && mode != "sparse" && mode != "rvv" &&
-      mode != "sparse_rvv" && mode != "sparse_rvv_fused") {
+      mode != "sparse_rvv" && mode != "sparse_rvv_fused" &&
+      mode != "sparse_rvv_fused_acc2" && mode != "sparse_rvv_fused_acc4") {
     throw std::invalid_argument("Unsupported mode: " + mode);
   }
   if (mode != "dense" && mode != "sparse" && !snn::rvv_available()) {
@@ -206,13 +224,32 @@ int main(int argc, char** argv) {
     validate_mode(first_mode);
     validate_mode(second_mode);
     Workload work = read_workload(trace);
+    // SNNMNST2 stores weights in input-major order. Legacy scalar/dense
+    // kernels expect output-major and are deliberately disallowed here.
+    if (work.stored_input_major) {
+      const auto supports_input_major = [](const std::string& mode) {
+        return mode == "sparse_rvv" || mode == "sparse_rvv_fused" ||
+               mode == "sparse_rvv_fused_acc2" ||
+               mode == "sparse_rvv_fused_acc4";
+      };
+      if (!supports_input_major(first_mode) || !supports_input_major(second_mode)) {
+        throw std::invalid_argument(
+            "Input-major traces require a sparse RVV kernel; use SNNMNST1 for scalar/dense");
+      }
+    }
 
     // Transpose once per model load. Future measurements must account for
     // preparation costs if weights are frequently swapped or loaded anew.
-    if (first_mode == "sparse_rvv" || first_mode == "sparse_rvv_fused") {
+    if (!work.stored_input_major &&
+        (first_mode == "sparse_rvv" || first_mode == "sparse_rvv_fused" ||
+         first_mode == "sparse_rvv_fused_acc2" ||
+         first_mode == "sparse_rvv_fused_acc4")) {
       work.first_input_major = snn::prepare_input_major_weights(work.first);
     }
-    if (second_mode == "sparse_rvv" || second_mode == "sparse_rvv_fused") {
+    if (!work.stored_input_major &&
+        (second_mode == "sparse_rvv" || second_mode == "sparse_rvv_fused" ||
+         second_mode == "sparse_rvv_fused_acc2" ||
+         second_mode == "sparse_rvv_fused_acc4")) {
       work.second_input_major = snn::prepare_input_major_weights(work.second);
     }
 
@@ -235,7 +272,9 @@ int main(int argc, char** argv) {
     m5_dump_stats(0, 0);
 #endif
 
-    std::cout << "first_mode=" << first_mode << " second_mode=" << second_mode
+    std::cout << "weight_layout=" <<
+        (work.stored_input_major ? "pretransposed_input_major" : "original_output_major")
+              << " first_mode=" << first_mode << " second_mode=" << second_mode
               << " samples=" << work.samples.size() << " timesteps=" << work.steps
               << " images_correct=" << measured.correct_predictions
               << " accuracy_on_subset=" << std::fixed << std::setprecision(6)

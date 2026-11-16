@@ -343,6 +343,122 @@ std::vector<std::uint8_t> step_sparse_rvv_fused(
 #endif
 }
 
+// Use K independent accumulators instead of one serial vector-add chain.
+// Existing single-accumulator fused kernel remains unchanged as the baseline.
+// Each accumulator processes a different active input's outgoing weights.
+#if defined(__riscv_vector)
+template <int K>
+std::vector<std::uint8_t> fused_multi_impl(
+    const Layer& layer, const std::vector<float>& input_major_weights,
+    const std::vector<float>& input_spikes, State& state) {
+  static_assert(K == 2 || K == 4);
+  validate_input(layer, input_spikes, state);
+  if (input_major_weights.size() != layer.weights.size()) {
+    throw std::invalid_argument("Input-major weight shape mismatch");
+  }
+
+  // Identical spike extraction and LIF dynamics to the fused baseline.
+  std::vector<std::size_t> active;
+  active.reserve(layer.inputs);
+  for (std::size_t j = 0; j < layer.inputs; ++j) {
+    if (input_spikes[j] == 1.0F) active.push_back(j);
+  }
+
+  std::vector<std::uint8_t> output(layer.outputs);
+  for (std::size_t i = 0; i < layer.outputs;) {
+    const std::size_t vl = __riscv_vsetvl_e32m1(layer.outputs - i);
+    vfloat32m1_t a0 = __riscv_vfmv_v_f_f32m1(0.0F, vl);
+    vfloat32m1_t a1 = __riscv_vfmv_v_f_f32m1(0.0F, vl);
+    vfloat32m1_t a2 = __riscv_vfmv_v_f_f32m1(0.0F, vl);
+    vfloat32m1_t a3 = __riscv_vfmv_v_f_f32m1(0.0F, vl);
+
+    // Unroll by K; each add depends only on its own accumulator.
+    std::size_t a = 0;
+    for (; a + K <= active.size(); a += K) {
+      const vfloat32m1_t w0 = __riscv_vle32_v_f32m1(
+          input_major_weights.data() + active[a] * layer.outputs + i, vl);
+      a0 = __riscv_vfadd_vv_f32m1(a0, w0, vl);
+      const vfloat32m1_t w1 = __riscv_vle32_v_f32m1(
+          input_major_weights.data() + active[a + 1] * layer.outputs + i, vl);
+      a1 = __riscv_vfadd_vv_f32m1(a1, w1, vl);
+      if constexpr (K == 4) {
+        const vfloat32m1_t w2 = __riscv_vle32_v_f32m1(
+            input_major_weights.data() + active[a + 2] * layer.outputs + i, vl);
+        a2 = __riscv_vfadd_vv_f32m1(a2, w2, vl);
+        const vfloat32m1_t w3 = __riscv_vle32_v_f32m1(
+            input_major_weights.data() + active[a + 3] * layer.outputs + i, vl);
+        a3 = __riscv_vfadd_vv_f32m1(a3, w3, vl);
+      }
+    }
+    // Handle remaining 0..K-1 active inputs; no contributions are discarded.
+    for (; a < active.size(); ++a) {
+      const vfloat32m1_t w = __riscv_vle32_v_f32m1(
+          input_major_weights.data() + active[a] * layer.outputs + i, vl);
+      a0 = __riscv_vfadd_vv_f32m1(a0, w, vl);
+    }
+
+    // Combining chains changes FP summation order; verify spikes externally.
+    vfloat32m1_t current = __riscv_vfadd_vv_f32m1(a0, a1, vl);
+    if constexpr (K == 4) {
+      const vfloat32m1_t a23 = __riscv_vfadd_vv_f32m1(a2, a3, vl);
+      current = __riscv_vfadd_vv_f32m1(current, a23, vl);
+    }
+
+    // Same fused LIF update, threshold, hard reset, and uint8 output encoding.
+    const vfloat32m1_t potential = __riscv_vle32_v_f32m1(
+        state.voltage.data() + i, vl);
+    const vfloat32m1_t bias = __riscv_vle32_v_f32m1(
+        layer.bias.data() + i, vl);
+    vfloat32m1_t voltage = __riscv_vfmul_vf_f32m1(
+        potential, layer.beta, vl);
+    voltage = __riscv_vfadd_vv_f32m1(voltage, current, vl);
+    voltage = __riscv_vfadd_vv_f32m1(voltage, bias, vl);
+
+    const vbool32_t fired = __riscv_vmfge_vf_f32m1_b32(
+        voltage, layer.threshold, vl);
+    const vfloat32m1_t zero = __riscv_vfmv_v_f_f32m1(0.0F, vl);
+    const vfloat32m1_t next = __riscv_vmerge_vvm_f32m1(
+        voltage, zero, fired, vl);
+    __riscv_vse32_v_f32m1(state.voltage.data() + i, next, vl);
+
+    const vuint32m1_t zeros = __riscv_vmv_v_x_u32m1(0, vl);
+    const vuint32m1_t ones = __riscv_vmv_v_x_u32m1(1, vl);
+    const vuint32m1_t spikes32 = __riscv_vmerge_vvm_u32m1(
+        zeros, ones, fired, vl);
+    const vuint16mf2_t spikes16 = __riscv_vnsrl_wx_u16mf2(
+        spikes32, 0, vl);
+    const vuint8mf4_t spikes8 = __riscv_vnsrl_wx_u8mf4(
+        spikes16, 0, vl);
+    __riscv_vse8_v_u8mf4(output.data() + i, spikes8, vl);
+    i += vl;
+  }
+  return output;
+}
+#endif
+
+// Public entry point; 1 defers to the original unmodified fused baseline.
+std::vector<std::uint8_t> step_sparse_rvv_fused_multi(
+    const Layer& layer, const std::vector<float>& input_major_weights,
+    const std::vector<float>& input_spikes, State& state, int accumulators) {
+  if (accumulators == 1) {
+    return step_sparse_rvv_fused(layer, input_major_weights, input_spikes, state);
+  }
+#if defined(__riscv_vector)
+  if (accumulators == 2) {
+    return fused_multi_impl<2>(layer, input_major_weights, input_spikes, state);
+  }
+  if (accumulators == 4) {
+    return fused_multi_impl<4>(layer, input_major_weights, input_spikes, state);
+  }
+#else
+  (void)layer;
+  (void)input_major_weights;
+  (void)input_spikes;
+  (void)state;
+#endif
+  throw std::invalid_argument("RVV multi-accumulator count must be 1, 2 or 4");
+}
+
 bool rvv_available() {
 #if defined(__riscv_vector)
   return true;

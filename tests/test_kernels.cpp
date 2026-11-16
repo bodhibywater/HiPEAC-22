@@ -54,6 +54,7 @@ void random_parity() {
       snn::State dense(outputs), sparse(outputs), group_state(outputs);
       snn::State sparse_rvv_state(outputs), dense_rvv_state(outputs);
       snn::State fused_rvv_state(outputs);
+      snn::State acc2_rvv_state(outputs), acc4_rvv_state(outputs);
       const auto input_major = snn::prepare_input_major_weights(layer);
       std::vector<float> independent(outputs, 0.0F);
       const auto group1 = snn::group_adjacent_mean(layer, 1);
@@ -70,15 +71,25 @@ void random_parity() {
           const auto dr = snn::step_rvv(layer, in, dense_rvv_state);
           const auto fused = snn::step_sparse_rvv_fused(
               layer, input_major, in, fused_rvv_state);
+          const auto acc2 = snn::step_sparse_rvv_fused_multi(
+              layer, input_major, in, acc2_rvv_state, 2);
+          const auto acc4 = snn::step_sparse_rvv_fused_multi(
+              layer, input_major, in, acc4_rvv_state, 4);
           require(sr == expected, "Sparse RVV emitted different spikes");
           require(fused == expected, "Fused sparse RVV emitted different spikes");
           require(fused == sr, "Fused/unfused sparse RVV mismatch");
+          require(acc2 == expected, "2-accumulator RVV emitted different spikes");
+          require(acc4 == expected, "4-accumulator RVV emitted different spikes");
           require(dr == expected, "Dense RVV emitted different spikes");
           for (std::size_t i = 0; i < outputs; ++i) {
             require(std::fabs(sparse_rvv_state.voltage[i] - independent[i]) <= 1e-5F,
                     "Sparse RVV voltage mismatch");
             require(std::fabs(fused_rvv_state.voltage[i] - sparse_rvv_state.voltage[i]) <= 1e-5F,
                     "Fused/unfused RVV voltage mismatch");
+            require(std::fabs(acc2_rvv_state.voltage[i] - independent[i]) <= 5e-5F,
+                    "2-accumulator RVV voltage mismatch");
+            require(std::fabs(acc4_rvv_state.voltage[i] - independent[i]) <= 5e-5F,
+                    "4-accumulator RVV voltage mismatch");
             require(std::fabs(dense_rvv_state.voltage[i] - independent[i]) <= 1e-5F,
                     "Dense RVV voltage mismatch");
           }

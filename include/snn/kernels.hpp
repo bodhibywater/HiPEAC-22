@@ -66,6 +66,13 @@ std::vector<std::uint8_t> step_sparse_rvv_fused(
     const Layer& layer, const std::vector<float>& input_major_weights,
     const std::vector<float>& input_spikes, State& state);
 
+// Independent accumulation chains reduce the dependency depth of spike-driven
+// synaptic integration. Only 2 or 4 are valid; 1 uses the original baseline.
+// Floating-point association differs from the single-accumulator baseline.
+std::vector<std::uint8_t> step_sparse_rvv_fused_multi(
+    const Layer& layer, const std::vector<float>& input_major_weights,
+    const std::vector<float>& input_spikes, State& state, int accumulators);
+
 bool rvv_available();
 
 // Equivalent dense implementation when compiled with RVV support. On non-RVV
