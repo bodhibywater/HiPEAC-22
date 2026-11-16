@@ -103,6 +103,6 @@ for latency in ("1", "4"):
     results = {row["mode"]: int(row["cycles"]) for row in rows if row["simd_latency"] == latency}
     baseline = results["sparse_rvv_fused"]
     candidate = results["sparse_rvv_fused_acc2"]
-    print(f"  Latency {latency}: acc2 improvement = {(baseline - candidate) / baseline * 100:.2f}%"
+    print(f"  Latency {latency}: acc2 improvement = {(baseline - candidate) / baseline * 100:.2f}%")
 print(f"\nCSV: {sys.argv[1]}")
 PY
