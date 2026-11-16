@@ -1,5 +1,9 @@
 #include "snn/kernels.hpp"
 
+#ifdef SNN_GEM5
+#include <gem5/m5ops.h>
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -47,11 +51,16 @@ Config parse(int argc, char** argv) {
   if (c.inputs == 0 || c.outputs == 0 || c.steps == 0 || c.group == 0 ||
       c.repeats < 1 || c.warmup < 0 || !std::isfinite(c.density) ||
       c.density < 0 || c.density > 1 ||
-      (c.mode != "dense" && c.mode != "sparse" && c.mode != "rvv")) {
+      (c.mode != "dense" && c.mode != "sparse" && c.mode != "rvv" &&
+       c.mode != "sparse_rvv" && c.mode != "sparse_rvv_fused")) {
     throw std::invalid_argument("invalid benchmark configuration");
   }
-  if (c.mode == "rvv" && !snn::rvv_available()) {
+  if ((c.mode == "rvv" || c.mode == "sparse_rvv" ||
+       c.mode == "sparse_rvv_fused") && !snn::rvv_available()) {
     throw std::runtime_error("RVV mode requires an RVV-compiled target");
+  }
+  if ((c.mode == "sparse_rvv" || c.mode == "sparse_rvv_fused") && c.group != 1) {
+    throw std::invalid_argument("sparse_rvv currently requires --group 1");
   }
   return c;
 }
@@ -59,6 +68,7 @@ Config parse(int argc, char** argv) {
 // Fix the actual spike patterns and weights before measuring any kernel.
 struct Workload {
   snn::Layer layer;
+  std::vector<float> input_major_weights;
   std::vector<std::vector<float>> spikes;
   double realised_density = 0.0;
 };
@@ -75,6 +85,9 @@ Workload make_workload(const Config& c) {
   w.layer.weights.resize(c.inputs * c.outputs);
   w.layer.bias.assign(c.outputs, 0.0F);
   for (float& v : w.layer.weights) v = weight(rng);
+  if (c.mode == "sparse_rvv" || c.mode == "sparse_rvv_fused") {
+    w.input_major_weights = snn::prepare_input_major_weights(w.layer);
+  }
   std::size_t active_count = 0;
   for (std::size_t t = 0; t < c.steps; ++t) {
     auto& spikes = w.spikes.emplace_back(c.inputs);
@@ -96,6 +109,9 @@ double run_once(const Config& c, const Workload& w, const snn::GroupedLayer& g,
   snn::State state(grouped ? g.aggregated.outputs : w.layer.outputs);
   checksum = 0;  // Independent checksum for each repeat.
   const auto start = std::chrono::steady_clock::now();
+#ifdef SNN_GEM5
+  m5_reset_stats(0, 0);
+#endif
   for (const auto& spikes : w.spikes) {
     std::vector<std::uint8_t> output;
     if (grouped) {
@@ -111,12 +127,21 @@ double run_once(const Config& c, const Workload& w, const snn::GroupedLayer& g,
       }
     } else if (c.mode == "rvv") {
       output = snn::step_rvv(w.layer, spikes, state);
+    } else if (c.mode == "sparse_rvv") {
+      output = snn::step_sparse_rvv(
+          w.layer, w.input_major_weights, spikes, state);
+    } else if (c.mode == "sparse_rvv_fused") {
+      output = snn::step_sparse_rvv_fused(
+          w.layer, w.input_major_weights, spikes, state);
     } else {
       output = snn::step(w.layer, spikes, state,
           c.mode == "dense" ? snn::Execution::Dense : snn::Execution::Sparse);
     }
     for (std::uint8_t s : output) checksum += s;
   }
+#ifdef SNN_GEM5
+  m5_dump_stats(0, 0);
+#endif
   const auto end = std::chrono::steady_clock::now();
   return std::chrono::duration<double, std::micro>(end - start).count();
 }

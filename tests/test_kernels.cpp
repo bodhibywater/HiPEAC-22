@@ -40,7 +40,7 @@ void random_parity() {
   std::uniform_real_distribution<float> values(-0.4F, 0.7F);
   std::bernoulli_distribution activity(0.24);
   for (std::size_t inputs : {1U, 3U, 17U, 65U}) {
-    for (std::size_t outputs : {1U, 5U, 13U}) {
+    for (std::size_t outputs : {1U, 5U, 13U, 129U}) {
       snn::Layer layer;
       layer.inputs = inputs;
       layer.outputs = outputs;
@@ -52,6 +52,9 @@ void random_parity() {
       for (auto& v : layer.bias) v = values(rng) * 0.1F;
       layer.validate();
       snn::State dense(outputs), sparse(outputs), group_state(outputs);
+      snn::State sparse_rvv_state(outputs), dense_rvv_state(outputs);
+      snn::State fused_rvv_state(outputs);
+      const auto input_major = snn::prepare_input_major_weights(layer);
       std::vector<float> independent(outputs, 0.0F);
       const auto group1 = snn::group_adjacent_mean(layer, 1);
       for (int t = 0; t < 37; ++t) {
@@ -61,6 +64,25 @@ void random_parity() {
         const auto d = snn::step(layer, in, dense, snn::Execution::Dense);
         const auto s = snn::step(layer, in, sparse, snn::Execution::Sparse);
         const auto g = snn::grouped_step(group1, in, group_state, snn::Execution::Sparse);
+        if (snn::rvv_available()) {
+          const auto sr = snn::step_sparse_rvv(
+              layer, input_major, in, sparse_rvv_state);
+          const auto dr = snn::step_rvv(layer, in, dense_rvv_state);
+          const auto fused = snn::step_sparse_rvv_fused(
+              layer, input_major, in, fused_rvv_state);
+          require(sr == expected, "Sparse RVV emitted different spikes");
+          require(fused == expected, "Fused sparse RVV emitted different spikes");
+          require(fused == sr, "Fused/unfused sparse RVV mismatch");
+          require(dr == expected, "Dense RVV emitted different spikes");
+          for (std::size_t i = 0; i < outputs; ++i) {
+            require(std::fabs(sparse_rvv_state.voltage[i] - independent[i]) <= 1e-5F,
+                    "Sparse RVV voltage mismatch");
+            require(std::fabs(fused_rvv_state.voltage[i] - sparse_rvv_state.voltage[i]) <= 1e-5F,
+                    "Fused/unfused RVV voltage mismatch");
+            require(std::fabs(dense_rvv_state.voltage[i] - independent[i]) <= 1e-5F,
+                    "Dense RVV voltage mismatch");
+          }
+        }
         require(d == expected && s == expected && g == expected,
                 "Incorrect emitted spikes");
         for (std::size_t i = 0; i < outputs; ++i) {

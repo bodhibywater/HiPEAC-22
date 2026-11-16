@@ -51,6 +51,21 @@ std::vector<std::uint8_t> grouped_step(const GroupedLayer& grouped,
                                        State& group_state, Execution execution);
 
 // Used to confirm that the build actually supports RISC-V vector instructions.
+// Transpose once during setup so active inputs have contiguous output weights.
+// Layout: input_major[j * layer.outputs + i] = W[i,j].
+std::vector<float> prepare_input_major_weights(const Layer& layer);
+
+// Compute only active input connections using RVV operations across outputs.
+std::vector<std::uint8_t> step_sparse_rvv(
+    const Layer& layer, const std::vector<float>& input_major_weights,
+    const std::vector<float>& input_spikes, State& state);
+
+// Like step_sparse_rvv, but accumulate and update each output block in
+// registers without allocating/storing/reloading an intermediate current array.
+std::vector<std::uint8_t> step_sparse_rvv_fused(
+    const Layer& layer, const std::vector<float>& input_major_weights,
+    const std::vector<float>& input_spikes, State& state);
+
 bool rvv_available();
 
 // Equivalent dense implementation when compiled with RVV support. On non-RVV

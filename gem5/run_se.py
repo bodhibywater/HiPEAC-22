@@ -55,5 +55,5 @@ def main() -> None:
     Simulator(board=board).run()
 
 
-if __name__ == "__main__":
+if __name__ in ("__main__", "__m5_main__"):
     main()
