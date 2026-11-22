@@ -132,6 +132,12 @@ std::vector<std::uint8_t> run_layer(
   if (mode == "dense") return snn::step(layer, spikes, state, snn::Execution::Dense);
   if (mode == "sparse") return snn::step(layer, spikes, state, snn::Execution::Sparse);
   if (mode == "rvv") return snn::step_rvv(layer, spikes, state);
+  if (mode == "sparse_scalar_im") {
+    return snn::step_sparse_scalar_input_major(layer, transposed, spikes, state);
+  }
+  if (mode == "dense_rvv_fused") {
+    return snn::step_dense_rvv_fused(layer, transposed, spikes, state);
+  }
   if (mode == "sparse_rvv") return snn::step_sparse_rvv(layer, transposed, spikes, state);
   if (mode == "sparse_rvv_fused") {
     return snn::step_sparse_rvv_fused(layer, transposed, spikes, state);
@@ -195,11 +201,13 @@ Result infer(const Workload& w, const std::string& first_mode,
 // Restrict benchmark modes explicitly to avoid accidental scalar fallback.
 void validate_mode(const std::string& mode) {
   if (mode != "dense" && mode != "sparse" && mode != "rvv" &&
+      mode != "sparse_scalar_im" && mode != "dense_rvv_fused" &&
       mode != "sparse_rvv" && mode != "sparse_rvv_fused" &&
       mode != "sparse_rvv_fused_acc2" && mode != "sparse_rvv_fused_acc4") {
     throw std::invalid_argument("Unsupported mode: " + mode);
   }
-  if (mode != "dense" && mode != "sparse" && !snn::rvv_available()) {
+  if (mode != "dense" && mode != "sparse" &&
+      mode != "sparse_scalar_im" && !snn::rvv_available()) {
     throw std::runtime_error("Selected kernel requires a RISC-V RVV build");
   }
 }
@@ -228,7 +236,8 @@ int main(int argc, char** argv) {
     // kernels expect output-major and are deliberately disallowed here.
     if (work.stored_input_major) {
       const auto supports_input_major = [](const std::string& mode) {
-        return mode == "sparse_rvv" || mode == "sparse_rvv_fused" ||
+        return mode == "sparse_scalar_im" || mode == "dense_rvv_fused" ||
+               mode == "sparse_rvv" || mode == "sparse_rvv_fused" ||
                mode == "sparse_rvv_fused_acc2" ||
                mode == "sparse_rvv_fused_acc4";
       };
@@ -241,13 +250,15 @@ int main(int argc, char** argv) {
     // Transpose once per model load. Future measurements must account for
     // preparation costs if weights are frequently swapped or loaded anew.
     if (!work.stored_input_major &&
-        (first_mode == "sparse_rvv" || first_mode == "sparse_rvv_fused" ||
+        (first_mode == "sparse_scalar_im" || first_mode == "dense_rvv_fused" ||
+         first_mode == "sparse_rvv" || first_mode == "sparse_rvv_fused" ||
          first_mode == "sparse_rvv_fused_acc2" ||
          first_mode == "sparse_rvv_fused_acc4")) {
       work.first_input_major = snn::prepare_input_major_weights(work.first);
     }
     if (!work.stored_input_major &&
-        (second_mode == "sparse_rvv" || second_mode == "sparse_rvv_fused" ||
+        (second_mode == "sparse_scalar_im" || second_mode == "dense_rvv_fused" ||
+         second_mode == "sparse_rvv" || second_mode == "sparse_rvv_fused" ||
          second_mode == "sparse_rvv_fused_acc2" ||
          second_mode == "sparse_rvv_fused_acc4")) {
       work.second_input_major = snn::prepare_input_major_weights(work.second);
