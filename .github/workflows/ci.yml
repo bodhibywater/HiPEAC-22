@@ -20,3 +20,22 @@ jobs:
           ./build/snn_bench --inputs 8 --outputs 7 --steps 4 --mode dense --repeats 2
           ./build/snn_bench --inputs 8 --outputs 7 --steps 4 --mode sparse --repeats 2
           ./build/snn_bench --inputs 8 --outputs 7 --steps 4 --group 3 --mode sparse --repeats 2
+
+  riscv-rvv-correctness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install RISC-V cross compiler and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-riscv64-linux-gnu qemu-user
+      - name: Cross-compile RVV correctness tests
+        run: |
+          cmake -S . -B build-rvv \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_CXX_COMPILER=riscv64-linux-gnu-g++ \
+            -DCMAKE_CXX_FLAGS="-march=rv64gcv -mabi=lp64d" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-rvv --target snn_test -j2
+      - name: Run all RVV kernel correctness tests under QEMU
+        run: qemu-riscv64 -L /usr/riscv64-linux-gnu -cpu max,vlen=256 ./build-rvv/snn_test
