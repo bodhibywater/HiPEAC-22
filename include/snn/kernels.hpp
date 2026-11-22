@@ -55,6 +55,18 @@ std::vector<std::uint8_t> grouped_step(const GroupedLayer& grouped,
 // Layout: input_major[j * layer.outputs + i] = W[i,j].
 std::vector<float> prepare_input_major_weights(const Layer& layer);
 
+// Scalar control with the SAME input-major layout and fused LIF update as
+// the sparse RVV kernels. Isolates vectorisation from weight-layout effects.
+std::vector<std::uint8_t> step_sparse_scalar_input_major(
+    const Layer& layer, const std::vector<float>& input_major_weights,
+    const std::vector<float>& input_spikes, State& state);
+
+// Dense, output-parallel RVV with fused LIF. Traverses ALL input connections,
+// including silent inputs, to isolate sparsity from vectorisation/fusion.
+std::vector<std::uint8_t> step_dense_rvv_fused(
+    const Layer& layer, const std::vector<float>& input_major_weights,
+    const std::vector<float>& input_spikes, State& state);
+
 // Compute only active input connections using RVV operations across outputs.
 std::vector<std::uint8_t> step_sparse_rvv(
     const Layer& layer, const std::vector<float>& input_major_weights,
