@@ -30,6 +30,13 @@ struct Config {
   std::string mode = "dense";
 };
 
+// Keep every input-major kernel on the same prepared weight representation.
+bool needs_input_major(const std::string& mode) {
+  return mode == "sparse_scalar_im" || mode == "dense_rvv_fused" ||
+         mode == "sparse_rvv" || mode == "sparse_rvv_fused" ||
+         mode == "sparse_rvv_fused_acc2" || mode == "sparse_rvv_fused_acc4";
+}
+
 // Parse self-contained command-line flags so every experiment is reproducible.
 Config parse(int argc, char** argv) {
   Config c;
@@ -52,15 +59,15 @@ Config parse(int argc, char** argv) {
       c.repeats < 1 || c.warmup < 0 || !std::isfinite(c.density) ||
       c.density < 0 || c.density > 1 ||
       (c.mode != "dense" && c.mode != "sparse" && c.mode != "rvv" &&
-       c.mode != "sparse_rvv" && c.mode != "sparse_rvv_fused")) {
+       !needs_input_major(c.mode))) {
     throw std::invalid_argument("invalid benchmark configuration");
   }
-  if ((c.mode == "rvv" || c.mode == "sparse_rvv" ||
-       c.mode == "sparse_rvv_fused") && !snn::rvv_available()) {
+  if ((c.mode == "rvv" || (needs_input_major(c.mode) &&
+       c.mode != "sparse_scalar_im")) && !snn::rvv_available()) {
     throw std::runtime_error("RVV mode requires an RVV-compiled target");
   }
-  if ((c.mode == "sparse_rvv" || c.mode == "sparse_rvv_fused") && c.group != 1) {
-    throw std::invalid_argument("sparse_rvv currently requires --group 1");
+  if (needs_input_major(c.mode) && c.group != 1) {
+    throw std::invalid_argument("Input-major modes require --group 1");
   }
   return c;
 }
@@ -85,7 +92,7 @@ Workload make_workload(const Config& c) {
   w.layer.weights.resize(c.inputs * c.outputs);
   w.layer.bias.assign(c.outputs, 0.0F);
   for (float& v : w.layer.weights) v = weight(rng);
-  if (c.mode == "sparse_rvv" || c.mode == "sparse_rvv_fused") {
+  if (needs_input_major(c.mode)) {
     w.input_major_weights = snn::prepare_input_major_weights(w.layer);
   }
   std::size_t active_count = 0;
@@ -133,6 +140,17 @@ double run_once(const Config& c, const Workload& w, const snn::GroupedLayer& g,
     } else if (c.mode == "sparse_rvv_fused") {
       output = snn::step_sparse_rvv_fused(
           w.layer, w.input_major_weights, spikes, state);
+    } else if (c.mode == "sparse_scalar_im") {
+      output = snn::step_sparse_scalar_input_major(
+          w.layer, w.input_major_weights, spikes, state);
+    } else if (c.mode == "dense_rvv_fused") {
+      output = snn::step_dense_rvv_fused(
+          w.layer, w.input_major_weights, spikes, state);
+    } else if (c.mode == "sparse_rvv_fused_acc2" ||
+               c.mode == "sparse_rvv_fused_acc4") {
+      const int k = c.mode == "sparse_rvv_fused_acc2" ? 2 : 4;
+      output = snn::step_sparse_rvv_fused_multi(
+          w.layer, w.input_major_weights, spikes, state, k);
     } else {
       output = snn::step(w.layer, spikes, state,
           c.mode == "dense" ? snn::Execution::Dense : snn::Execution::Sparse);
