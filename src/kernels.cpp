@@ -237,6 +237,98 @@ std::vector<float> prepare_input_major_weights(const Layer& layer) {
   return prepared;
 }
 
+// Input-major scalar sparse control: same layout, output-block traversal order,
+// index extraction, and fused membrane update as sparse RVV, but no vectors.
+std::vector<std::uint8_t> step_sparse_scalar_input_major(
+    const Layer& layer, const std::vector<float>& input_major_weights,
+    const std::vector<float>& input_spikes, State& state) {
+  validate_input(layer, input_spikes, state);
+  if (input_major_weights.size() != layer.weights.size()) {
+    throw std::invalid_argument("Input-major weight shape mismatch");
+  }
+  std::vector<std::size_t> active;
+  active.reserve(layer.inputs);
+  for (std::size_t j = 0; j < layer.inputs; ++j) {
+    if (input_spikes[j] == 1.0F) active.push_back(j);
+  }
+
+  std::vector<std::uint8_t> output(layer.outputs);
+  for (std::size_t i = 0; i < layer.outputs; ++i) {
+    float current = 0.0F;
+    for (std::size_t j : active) {
+      current += input_major_weights[j * layer.outputs + i];
+    }
+    const float voltage =
+        layer.beta * state.voltage[i] + current + layer.bias[i];
+    const bool fired = voltage >= layer.threshold;
+    output[i] = static_cast<std::uint8_t>(fired);
+    state.voltage[i] = fired ? 0.0F : voltage;
+  }
+  return output;
+}
+
+// Dense RVV control: process ALL inputs, use the same input-major layout and
+// output-parallel vectorised LIF as fused sparse RVV. No horizontal reductions
+// or intermediate current-array stores; the only algorithmic difference from
+// the sparse kernel is multiplying weights by every 0/1 input spike.
+std::vector<std::uint8_t> step_dense_rvv_fused(
+    const Layer& layer, const std::vector<float>& input_major_weights,
+    const std::vector<float>& input_spikes, State& state) {
+#if defined(__riscv_vector)
+  validate_input(layer, input_spikes, state);
+  if (input_major_weights.size() != layer.weights.size()) {
+    throw std::invalid_argument("Input-major weight shape mismatch");
+  }
+  std::vector<std::uint8_t> output(layer.outputs);
+  for (std::size_t i = 0; i < layer.outputs;) {
+    const std::size_t vl = __riscv_vsetvl_e32m1(layer.outputs - i);
+    vfloat32m1_t current = __riscv_vfmv_v_f_f32m1(0.0F, vl);
+    for (std::size_t j = 0; j < layer.inputs; ++j) {
+      const vfloat32m1_t weights = __riscv_vle32_v_f32m1(
+          input_major_weights.data() + j * layer.outputs + i, vl);
+      const vfloat32m1_t contribution =
+          __riscv_vfmul_vf_f32m1(weights, input_spikes[j], vl);
+      current = __riscv_vfadd_vv_f32m1(current, contribution, vl);
+    }
+
+    // Apply identical per-neuron LIF order and spike encoding to fused sparse.
+    const vfloat32m1_t potential = __riscv_vle32_v_f32m1(
+        state.voltage.data() + i, vl);
+    const vfloat32m1_t bias = __riscv_vle32_v_f32m1(
+        layer.bias.data() + i, vl);
+    vfloat32m1_t voltage = __riscv_vfmul_vf_f32m1(
+        potential, layer.beta, vl);
+    voltage = __riscv_vfadd_vv_f32m1(voltage, current, vl);
+    voltage = __riscv_vfadd_vv_f32m1(voltage, bias, vl);
+
+    const vbool32_t fired = __riscv_vmfge_vf_f32m1_b32(
+        voltage, layer.threshold, vl);
+    const vfloat32m1_t zero = __riscv_vfmv_v_f_f32m1(0.0F, vl);
+    const vfloat32m1_t next = __riscv_vmerge_vvm_f32m1(
+        voltage, zero, fired, vl);
+    __riscv_vse32_v_f32m1(state.voltage.data() + i, next, vl);
+
+    const vuint32m1_t zeros = __riscv_vmv_v_x_u32m1(0, vl);
+    const vuint32m1_t ones = __riscv_vmv_v_x_u32m1(1, vl);
+    const vuint32m1_t spikes32 = __riscv_vmerge_vvm_u32m1(
+        zeros, ones, fired, vl);
+    const vuint16mf2_t spikes16 = __riscv_vnsrl_wx_u16mf2(
+        spikes32, 0, vl);
+    const vuint8mf4_t spikes8 = __riscv_vnsrl_wx_u8mf4(
+        spikes16, 0, vl);
+    __riscv_vse8_v_u8mf4(output.data() + i, spikes8, vl);
+    i += vl;
+  }
+  return output;
+#else
+  (void)layer;
+  (void)input_major_weights;
+  (void)input_spikes;
+  (void)state;
+  throw std::runtime_error("Dense fused RVV requires a RISC-V vector target");
+#endif
+}
+
 // Skip silent inputs, then vector-add each active input's outgoing weights.
 std::vector<std::uint8_t> step_sparse_rvv(
     const Layer& layer, const std::vector<float>& input_major_weights,
