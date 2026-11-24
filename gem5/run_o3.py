@@ -9,6 +9,7 @@ Example:
 """
 
 import argparse
+import inspect
 from pathlib import Path
 
 from gem5.components.boards.simple_board import SimpleBoard
@@ -35,9 +36,13 @@ def main() -> None:
         parser.error("Supported experiment VLEN values: 128, 256, 512")
     path = Path(args.binary).resolve(strict=True)
     requires(isa_required=ISA.RISCV)
-    processor = SimpleProcessor(cpu_type=CPUTypes.O3, isa=ISA.RISCV, num_cores=1)
+    clock = {"clk_freq": "2GHz"} if "clk_freq" in inspect.signature(SimpleProcessor).parameters else {}
+    processor = SimpleProcessor(cpu_type=CPUTypes.O3, isa=ISA.RISCV, num_cores=1, **clock)
     for core in processor.cores:
-        core.core.isa[0].enable_rvv = True
+        if hasattr(core.core.isa[0], "riscv_profile"):
+            core.core.isa[0].riscv_profile = "RVA23S64"
+        else:
+            core.core.isa[0].enable_rvv = True
         core.core.isa[0].vlen = args.vlen
     board = SimpleBoard(
         clk_freq="2GHz",
