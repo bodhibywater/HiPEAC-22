@@ -1,0 +1,5 @@
+simd_units,simd_latency,mode,cycles,instructions,branch_mispredicts,lsq_full_events
+4,1,sparse_rvv_fused,6614269,13129111,80717,194719
+4,1,sparse_rvv_fused_acc2,6369282,13215189,80974,135683
+4,4,sparse_rvv_fused,6881082,13129111,80761,87965
+4,4,sparse_rvv_fused_acc2,6484568,13215189,81003,170369

@@ -1,0 +1,12 @@
+{
+  "output": "/home/haris/HiPEAC-22/artifacts/kernel_handoff_2_im.bin",
+  "samples": 2,
+  "timesteps": 16,
+  "weight_layout": "input_major",
+  "hidden": 256,
+  "reference_accuracy_on_subset": 1.0,
+  "realised_input_density": 0.15162627551020408,
+  "realised_hidden_density": 0.26953125,
+  "saved_checkpoint_test_accuracy": 0.9509,
+  "note": "Reference predictions and full spike traces saved for strict C++ verification"
+}

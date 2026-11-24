@@ -1,0 +1,5 @@
+trace_layout,mode,cycles,instructions,branch_mispredicts,l1d_misses,l2_data_misses,lsq_full_events
+output_major,sparse_rvv_fused,891095,1793598,9962,202389,52,24239
+input_major,sparse_rvv_fused,890030,1793891,9956,202095,43,25305
+input_major,sparse_rvv_fused_acc2,855885,1804227,9992,203912,8,14204
+input_major,sparse_rvv_fused_acc4,879408,1690839,10257,202104,3,14429

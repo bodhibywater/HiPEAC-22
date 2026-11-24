@@ -1,0 +1,2 @@
+simd_units,simd_latency,mode,cycles,instructions
+4,1,rvv,17505636,36023384

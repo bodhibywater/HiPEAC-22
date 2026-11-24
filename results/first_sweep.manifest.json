@@ -1,0 +1,49 @@
+{
+  "measurement": "native_wall_clock_us; NOT gem5 cycles",
+  "timestamp_utc": "2026-11-14T01:30:47.979298+00:00",
+  "command": "scripts/sweep.py",
+  "arguments": {
+    "bench": "/home/haris/HiPEAC-22/build/snn_bench",
+    "output": "/home/haris/HiPEAC-22/results/first_sweep.csv",
+    "density": [
+      0.01,
+      0.1,
+      0.3,
+      0.5,
+      0.8,
+      1.0
+    ],
+    "shapes": [
+      "128x128"
+    ],
+    "group": [
+      1
+    ],
+    "modes": [
+      "dense",
+      "sparse"
+    ],
+    "steps": 64,
+    "repeats": 9,
+    "warmup": 3,
+    "seed": 42
+  },
+  "host": {
+    "platform": "Linux-6.6.87.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "python": "3.12.3",
+    "machine": "x86_64"
+  },
+  "benchmark_sha256": "5332c2c937ae0cef4873c5f7d7cc965cd14aff5e9693ff6240d0adea19687955",
+  "experiment_count": 12,
+  "raw_sample_count": 108,
+  "environment": {
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null
+  },
+  "caveats": [
+    "No CPU affinity or frequency governor enforcement",
+    "Preprocessing of grouped weights excluded from timed region",
+    "Full timestep includes spike-index construction, state updates, and allocations"
+  ]
+}

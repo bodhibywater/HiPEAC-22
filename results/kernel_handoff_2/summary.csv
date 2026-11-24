@@ -1,0 +1,8 @@
+git_revision,mode,weight_layout,samples,vlen,cycles,instructions,branch_mispredicts,lsq_full_events
+3db62c5,dense,output_major,2,256,33222532,39629825,15119,90814
+3db62c5,sparse,output_major,2,256,5643539,8898533,18938,453885
+3db62c5,sparse_scalar_im,input_major,2,256,3962990,9796643,18659,15430
+3db62c5,dense_rvv_fused,input_major,2,256,13372068,10150847,6087,39892
+3db62c5,sparse_rvv_fused,input_major,2,256,890548,1800099,10072,24179
+3db62c5,sparse_rvv_fused_acc2,input_major,2,256,838314,1804355,10352,14428
+3db62c5,sparse_rvv_fused_acc4,input_major,2,256,825216,1690967,10454,17379
