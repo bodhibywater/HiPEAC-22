@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_library(snn_kernels STATIC src/kernels.cpp)
+add_library(snn_kernels STATIC src/kernels.cpp src/temporal.cpp)
 target_include_directories(snn_kernels PUBLIC include)
 target_compile_options(snn_kernels PRIVATE -Wall -Wextra -Wpedantic -fno-fast-math)
 

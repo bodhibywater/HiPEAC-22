@@ -1,4 +1,5 @@
 #include "snn/kernels.hpp"
+#include "snn/temporal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -151,6 +152,29 @@ std::vector<std::uint8_t> run_layer(
   throw std::invalid_argument("Unknown inference mode: " + mode);
 }
 
+bool is_temporal(const std::string& mode) {
+  return mode == "sparse_rvv_temporal4_weights" || mode == "sparse_rvv_temporal4";
+}
+
+// Only the temporal path uses window buffers. Existing non-windowed modes
+// retain their original driver and measured allocation behaviour.
+std::vector<std::uint8_t> run_window(
+    const std::string& mode, const snn::Layer& layer,
+    const std::vector<float>& weights, const std::vector<float>* inputs,
+    std::size_t steps, snn::State& state) {
+  if (is_temporal(mode)) {
+    return snn::step_sparse_rvv_temporal4(layer, weights, inputs, steps,
+                                         state, mode == "sparse_rvv_temporal4");
+  }
+  // Permit mixed per-layer experiments, preserving timestep order.
+  std::vector<std::uint8_t> output(steps * layer.outputs);
+  for (std::size_t t = 0; t < steps; ++t) {
+    const auto spikes = run_layer(mode, layer, weights, inputs[t], state);
+    std::copy(spikes.begin(), spikes.end(), output.begin() + t * layer.outputs);
+  }
+  return output;
+}
+
 // Run complete image inference. Membrane states persist across timesteps and
 // reset at the next image. Optional verification compares EVERY emitted spike.
 Result infer(const Workload& w, const std::string& first_mode,
@@ -167,7 +191,40 @@ Result infer(const Workload& w, const std::string& first_mode,
     const auto& second_vector_weights = w.stored_input_major
         ? w.second.weights : w.second_input_major;
 
-    for (std::uint32_t t = 0; t < w.steps; ++t) {
+    if (is_temporal(first_mode) || is_temporal(second_mode)) {
+      constexpr std::size_t window = 4;
+      std::vector<std::vector<float>> hidden_window(
+          window, std::vector<float>(w.first.outputs));
+      for (std::size_t t = 0; t < w.steps; t += window) {
+        const std::size_t len = std::min(window, std::size_t(w.steps) - t);
+        // The network is feedforward, so layer 1 may finish a window before
+        // layer 2 consumes its real (not oracle) hidden spikes in order.
+        const auto hidden = run_window(first_mode, w.first, first_vector_weights,
+                                       sample.inputs_by_time.data() + t, len, first_state);
+        for (std::size_t k = 0; k < len; ++k) {
+          for (std::size_t i = 0; i < w.first.outputs; ++i) {
+            const auto bit = hidden[k * w.first.outputs + i];
+            result.hidden_spikes += bit;
+            if (verify && bit != sample.expected_hidden[(t+k) * w.first.outputs + i]) {
+              ++result.hidden_mismatches;
+            }
+            hidden_window[k][i] = static_cast<float>(bit);
+          }
+        }
+        const auto output = run_window(second_mode, w.second, second_vector_weights,
+                                        hidden_window.data(), len, second_state);
+        for (std::size_t k = 0; k < len; ++k) {
+          for (std::size_t i = 0; i < w.second.outputs; ++i) {
+            const auto bit = output[k * w.second.outputs + i];
+            result.output_spikes += bit;
+            counts[i] += bit;
+            if (verify && bit != sample.expected_output[(t+k) * w.second.outputs + i]) {
+              ++result.output_mismatches;
+            }
+          }
+        }
+      }
+    } else for (std::uint32_t t = 0; t < w.steps; ++t) {
       const auto hidden = run_layer(first_mode, w.first, first_vector_weights,
                                     sample.inputs_by_time[t], first_state);
       for (std::size_t i = 0; i < hidden.size(); ++i) {
@@ -203,7 +260,7 @@ void validate_mode(const std::string& mode) {
   if (mode != "dense" && mode != "sparse" && mode != "rvv" &&
       mode != "sparse_scalar_im" && mode != "dense_rvv_fused" &&
       mode != "sparse_rvv" && mode != "sparse_rvv_fused" &&
-      mode != "sparse_rvv_fused_acc2" && mode != "sparse_rvv_fused_acc4") {
+      mode != "sparse_rvv_fused_acc2" && mode != "sparse_rvv_fused_acc4" && !is_temporal(mode)) {
     throw std::invalid_argument("Unsupported mode: " + mode);
   }
   if (mode != "dense" && mode != "sparse" &&
@@ -239,7 +296,7 @@ int main(int argc, char** argv) {
         return mode == "sparse_scalar_im" || mode == "dense_rvv_fused" ||
                mode == "sparse_rvv" || mode == "sparse_rvv_fused" ||
                mode == "sparse_rvv_fused_acc2" ||
-               mode == "sparse_rvv_fused_acc4";
+               mode == "sparse_rvv_fused_acc4" || is_temporal(mode);
       };
       if (!supports_input_major(first_mode) || !supports_input_major(second_mode)) {
         throw std::invalid_argument(
@@ -253,14 +310,14 @@ int main(int argc, char** argv) {
         (first_mode == "sparse_scalar_im" || first_mode == "dense_rvv_fused" ||
          first_mode == "sparse_rvv" || first_mode == "sparse_rvv_fused" ||
          first_mode == "sparse_rvv_fused_acc2" ||
-         first_mode == "sparse_rvv_fused_acc4")) {
+         first_mode == "sparse_rvv_fused_acc4" || is_temporal(first_mode))) {
       work.first_input_major = snn::prepare_input_major_weights(work.first);
     }
     if (!work.stored_input_major &&
         (second_mode == "sparse_scalar_im" || second_mode == "dense_rvv_fused" ||
          second_mode == "sparse_rvv" || second_mode == "sparse_rvv_fused" ||
          second_mode == "sparse_rvv_fused_acc2" ||
-         second_mode == "sparse_rvv_fused_acc4")) {
+         second_mode == "sparse_rvv_fused_acc4" || is_temporal(second_mode))) {
       work.second_input_major = snn::prepare_input_major_weights(work.second);
     }
 
