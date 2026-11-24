@@ -1,5 +1,6 @@
 #include "snn/kernels.hpp"
 #include "snn/temporal.hpp"
+#include "snn/temporal_tile.hpp"
 
 #include <algorithm>
 #include <array>
@@ -152,8 +153,38 @@ std::vector<std::uint8_t> run_layer(
   throw std::invalid_argument("Unknown inference mode: " + mode);
 }
 
+// Exact mode names: sparse_rvv_tile{1,2,4,8}_m{1,2}_{shared,separate}_{reg,mem}.
+struct TileMode {
+  std::size_t window = 0;
+  unsigned lmul = 0;
+  bool coalesce = false, resident = false;
+};
+
+TileMode tile_mode(const std::string& mode) {
+  constexpr char prefix[] = "sparse_rvv_tile";
+  constexpr std::size_t p = sizeof(prefix) - 1;
+  if (mode.size() <= p + 4 || mode.compare(0, p, prefix) != 0 ||
+      mode[p+1] != '_' || mode[p+2] != 'm' || mode[p+4] != '_') return {};
+  const char w = mode[p], m = mode[p+3];
+  if ((w != '1' && w != '2' && w != '4' && w != '8') ||
+      (m != '1' && m != '2')) return {};
+  const std::size_t b = static_cast<std::size_t>(w - '0');
+  const unsigned l = static_cast<unsigned>(m - '0');
+  const auto suffix = mode.substr(p+5);
+  if (suffix == "shared_reg") return {b, l, true, true};
+  if (suffix == "shared_mem") return {b, l, true, false};
+  if (suffix == "separate_reg") return {b, l, false, true};
+  if (suffix == "separate_mem") return {b, l, false, false};
+  return {};
+}
+
+std::size_t temporal_window(const std::string& mode) {
+  if (mode == "sparse_rvv_temporal4_weights" || mode == "sparse_rvv_temporal4") return 4;
+  return tile_mode(mode).window;
+}
+
 bool is_temporal(const std::string& mode) {
-  return mode == "sparse_rvv_temporal4_weights" || mode == "sparse_rvv_temporal4";
+  return temporal_window(mode) != 0;
 }
 
 // Only the temporal path uses window buffers. Existing non-windowed modes
@@ -162,9 +193,14 @@ std::vector<std::uint8_t> run_window(
     const std::string& mode, const snn::Layer& layer,
     const std::vector<float>& weights, const std::vector<float>* inputs,
     std::size_t steps, snn::State& state) {
-  if (is_temporal(mode)) {
+  if (mode == "sparse_rvv_temporal4_weights" || mode == "sparse_rvv_temporal4") {
     return snn::step_sparse_rvv_temporal4(layer, weights, inputs, steps,
                                          state, mode == "sparse_rvv_temporal4");
+  }
+  const auto tile = tile_mode(mode);
+  if (tile.window) {
+    return snn::step_sparse_rvv_tile(layer, weights, inputs, steps, state,
+                                     tile.window, tile.lmul, tile.coalesce, tile.resident);
   }
   // Permit mixed per-layer experiments, preserving timestep order.
   std::vector<std::uint8_t> output(steps * layer.outputs);
@@ -191,8 +227,13 @@ Result infer(const Workload& w, const std::string& first_mode,
     const auto& second_vector_weights = w.stored_input_major
         ? w.second.weights : w.second_input_major;
 
-    if (is_temporal(first_mode) || is_temporal(second_mode)) {
-      constexpr std::size_t window = 4;
+    const auto first_window = temporal_window(first_mode);
+    const auto second_window = temporal_window(second_mode);
+    if (first_window && second_window && first_window != second_window) {
+      throw std::invalid_argument("Temporal layers must use the same window size");
+    }
+    if (first_window || second_window) {
+      const std::size_t window = std::max(first_window, second_window);
       std::vector<std::vector<float>> hidden_window(
           window, std::vector<float>(w.first.outputs));
       for (std::size_t t = 0; t < w.steps; t += window) {

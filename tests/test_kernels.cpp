@@ -1,5 +1,6 @@
 #include "snn/kernels.hpp"
 #include "snn/temporal.hpp"
+#include "snn/temporal_tile.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -185,6 +186,69 @@ void temporal_parity() {
   }
 }
 
+// B: test the full factorial, including short windows, output tails, all
+// activity extremes, nonzero initial state and state continuity across tiles.
+void tile_parity() {
+  if (!snn::rvv_available()) {
+    snn::Layer layer{1, 1, {1.0F}, {0.0F}, 0.5F, 1.0F};
+    snn::State state(1);
+    const std::vector<float> input{1.0F};
+    bool rejected = false;
+    try { (void)snn::step_sparse_rvv_tile(layer, layer.weights, &input, 1, state, 1, 1, true, true); }
+    catch (const std::runtime_error&) { rejected = true; }
+    require(rejected, "Temporal tile must not fall back silently");
+    return;
+  }
+  std::mt19937 rng(20261125);
+  std::uniform_real_distribution<float> weight(-0.3F, 0.5F);
+  std::bernoulli_distribution active(0.28);
+  for (std::size_t ni : {1U, 17U, 65U}) {
+    for (std::size_t no : {1U, 10U, 13U, 129U, 256U}) {
+      snn::Layer layer{ni, no, std::vector<float>(ni*no),
+                       std::vector<float>(no), 0.83F, 1.25F};
+      for (auto& x : layer.weights) x = weight(rng);
+      for (auto& x : layer.bias) x = weight(rng) * 0.1F;
+      const auto weights = snn::prepare_input_major_weights(layer);
+      for (std::size_t window : {1U, 2U, 4U, 8U}) {
+        for (unsigned lmul : {1U, 2U}) {
+          for (bool shared : {false, true}) {
+            for (bool resident : {false, true}) {
+              snn::State ref(no), tiled(no);
+              for (std::size_t i = 0; i < no; ++i) ref.voltage[i] = tiled.voltage[i] = weight(rng);
+              for (std::size_t w = 0; w < 8 + window; ++w) {
+                const std::size_t len = w < 8 ? window : w - 7;
+                std::vector<std::vector<float>> inputs(len, std::vector<float>(ni));
+                for (std::size_t t = 0; t < len; ++t) {
+                  for (std::size_t j = 0; j < ni; ++j) {
+                    inputs[t][j] = w == 0 ? 0.0F : w == 1 ? 1.0F :
+                        w == 2 ? float(j % 2 == 0) : w == 3 ? float(j % window == t) :
+                        float(active(rng));
+                  }
+                }
+                std::vector<std::uint8_t> expected;
+                for (const auto& input : inputs) {
+                  const auto spikes = snn::step_sparse_rvv_fused(layer, weights, input, ref);
+                  expected.insert(expected.end(), spikes.begin(), spikes.end());
+                }
+                const auto actual = snn::step_sparse_rvv_tile(layer, weights, inputs.data(), len,
+                    tiled, window, lmul, shared, resident);
+                require(actual == expected, "B tile spike mismatch");
+                require(tiled.voltage == ref.voltage, "B tile membrane mismatch");
+              }
+              const std::vector<float> malformed(ni, 0.5F);
+              bool rejected = false;
+              try { (void)snn::step_sparse_rvv_tile(layer, weights, &malformed, 1,
+                  tiled, window, lmul, shared, resident); }
+              catch (const std::invalid_argument&) { rejected = true; }
+              require(rejected, "B tile must reject nonbinary input");
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 // Explicit edge cases: empty activity must still leak state, threshold must
 // fire on equality, and grouped dense/sparse must agree including partial groups.
 void edge_cases() {
@@ -224,6 +288,7 @@ int main() {
     random_parity();
     edge_cases();
     temporal_parity();
+    tile_parity();
     std::cout << "All C++ LIF kernel tests passed\n";
     return 0;
   } catch (const std::exception& e) {

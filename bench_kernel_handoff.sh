@@ -59,7 +59,7 @@ for mode in "${modes[@]}"; do
     dense|sparse|rvv) trace="$trace_om"; layout=output_major ;;
     sparse_scalar_im|dense_rvv_fused|sparse_rvv|sparse_rvv_fused|sparse_rvv_fused_acc2|sparse_rvv_fused_acc4)
       trace="$trace_im"; layout=input_major ;;
-    sparse_rvv_temporal4_weights|sparse_rvv_temporal4)
+    sparse_rvv_temporal4_weights|sparse_rvv_temporal4|sparse_rvv_tile[1248]_m[12]_shared_reg|sparse_rvv_tile[1248]_m[12]_shared_mem|sparse_rvv_tile[1248]_m[12]_separate_reg|sparse_rvv_tile[1248]_m[12]_separate_mem)
       trace="$trace_im"; layout=input_major ;;
     *) echo "Unsupported mode: $mode" >&2; exit 2 ;;
   esac
