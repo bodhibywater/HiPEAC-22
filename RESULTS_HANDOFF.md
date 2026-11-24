@@ -74,7 +74,7 @@ On the machine with `~/HiPEAC-22/results/`, this GNU tar command packages the ke
 
 ```bash
 cd ~/HiPEAC-22
-find results -type f \\( -name stats.txt -o -name config.ini -o -name run.log -o -name '*.csv' \\) -print0 |
+find results -type f \( -name stats.txt -o -name config.ini -o -name run.log -o -name '*.csv' \) -print0 |
   tar --null -czf "$HOME/hipeac-gem5-results.tar.gz" -T -
 ```
 
