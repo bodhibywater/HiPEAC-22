@@ -1,0 +1,14 @@
+[
+  "/home/haris/gem5-sim/build/RISCV/gem5.opt",
+  "--outdir=/home/haris/hipeac-temporal-results/A_16/dense_rvv_fused",
+  "/home/haris/HiPEAC-22/gem5/run_o3.py",
+  "--binary",
+  "/home/haris/HiPEAC-22/build-riscv-m5/snn_mnist",
+  "--vlen",
+  "256",
+  "--",
+  "--trace",
+  "/home/haris/hipeac-temporal-results/A_16/trace_im.bin",
+  "--mode",
+  "dense_rvv_fused"
+]

@@ -1,0 +1,12 @@
+{
+  "output": "/home/haris/hipeac-temporal-results/B_64/trace_im.bin",
+  "samples": 64,
+  "timesteps": 16,
+  "weight_layout": "input_major",
+  "hidden": 256,
+  "reference_accuracy_on_subset": 0.96875,
+  "realised_input_density": 0.1333568339445153,
+  "realised_hidden_density": 0.28105926513671875,
+  "saved_checkpoint_test_accuracy": 0.9509,
+  "note": "Reference predictions and full spike traces saved for strict C++ verification"
+}

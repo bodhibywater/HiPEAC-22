@@ -1,0 +1,24 @@
+Global frequency set at 1000000000000 ticks per second
+src/mem/dram_interface.cc:690: warn: DRAM device capacity (8192 Mbytes) does not match the address range assigned (1024 Mbytes)
+src/arch/riscv/isa.cc:321: info: RVV enabled, VLEN = 256 bits, ELEN = 64 bits
+src/base/statistics.hh:279: warn: One of the stats is a legacy stat. Legacy stat is a stat that does not belong to any statistics::Group. Legacy stat is deprecated.
+src/base/stats/storage.hh:278: warn: Bucket size (4) does not divide range [1:32] into equal-sized buckets. Rounding up.
+src/base/stats/storage.hh:278: warn: Bucket size (4) does not divide range [1:8] into equal-sized buckets. Rounding up.
+board.remote_gdb: Listening for connections on port 7000
+gem5 Simulator System.  https://www.gem5.org
+gem5 is copyrighted software; use the --copyright option for details.
+
+gem5 version 25.1.0.1
+gem5 compiled Nov 15 2026 16:27:49
+gem5 started Nov 25 2026 23:08:13
+gem5 executing on Harishan, pid 593
+command line: /home/haris/gem5-sim/build/RISCV/gem5.opt --outdir=/home/haris/hipeac-temporal-results/B_2/sparse_rvv_tile1_m1_separate_reg /home/haris/HiPEAC-22/gem5/run_o3.py --binary /home/haris/HiPEAC-22/build-riscv-m5/snn_mnist --vlen 256 -- --trace /home/haris/hipeac-temporal-results/B_2/trace_im.bin --mode sparse_rvv_tile1_m1_separate_reg
+
+src/sim/syscall_emul.cc:97: warn: ignoring syscall set_robust_list(...)
+      (further warnings will be suppressed)
+src/sim/syscall_emul.hh:1127: warn: readlink() called on '/proc/self/exe' may yield unexpected results in various settings.
+      Returning '/home/haris/HiPEAC-22/build-riscv-m5/snn_mnist'
+src/sim/mem_state.cc:443: info: Increasing stack size by one page.
+src/sim/syscall_emul.cc:86: warn: ignoring syscall mprotect(...)
+reference_check=PASS hidden_spike_mismatches=0 output_spike_mismatches=0 prediction_mismatches=0
+weight_layout=pretransposed_input_major first_mode=sparse_rvv_tile1_m1_separate_reg second_mode=sparse_rvv_tile1_m1_separate_reg samples=2 timesteps=16 images_correct=2 accuracy_on_subset=1.000000 hidden_spike_checksum=2208 output_spike_checksum=33

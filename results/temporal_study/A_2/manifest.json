@@ -1,0 +1,41 @@
+{
+  "branch": "",
+  "revision": "e0f26988bc5c50a5e83a75aaa5c66bf1e8ab12c1",
+  "runner_sha256": "a36e1e439dacc05d198711bfbd3c34c90dc9e2f58c37914ea1f8d18065bce06c",
+  "study_sha256": "0cb0d35e60d985eb52dfa8f44175cfc0f075bddc459f4303c9646c5d6f1f59fe",
+  "binary": "/home/haris/HiPEAC-22/build-riscv-m5/snn_mnist",
+  "binary_sha256": "ebe24eaf96d08f0dbe1f3d7a26096ff79e0750715a73753abf709816af047a01",
+  "test_binary_sha256": "616d66dd2110f80961d44c779b565626dd227bf64c98ce53644c1593b3ce404e",
+  "gem5_binary": "/home/haris/gem5-sim/build/RISCV/gem5.opt",
+  "gem5_sha256": "7fcdc18e63a8dbf0c2f6f59f6308e309d8d624b4053591d53627f14e83b626ea",
+  "vlen": 256,
+  "suite": "a",
+  "modes": [
+    "sparse_scalar_im",
+    "dense_rvv_fused",
+    "sparse_rvv_fused",
+    "sparse_rvv_fused_acc2",
+    "sparse_rvv_fused_acc4",
+    "sparse_rvv_temporal4_weights",
+    "sparse_rvv_temporal4"
+  ],
+  "qemu_skipped": false,
+  "prebuilt": false,
+  "dirty_tracked": false,
+  "gem5_revision": "c8222cc67a399bfc01e8658dd14b30d5bfd634f9",
+  "compiler": "/usr/bin/riscv64-linux-gnu-g++",
+  "compiler_version": "riscv64-linux-gnu-g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+  "disassembly_ok": true,
+  "checkpoint_sha256": "9f50ee1a79b3ffcc409aa53fa4cf63e01f1e483b4c732cdadb0a5effec4a91d9",
+  "seed": 20261115,
+  "trace": {
+    "samples": 2,
+    "timesteps": 16,
+    "inputs": 784,
+    "hidden": 256,
+    "outputs": 10,
+    "beta": 0.8999999761581421,
+    "threshold": 1.0,
+    "sha256": "866bff6c0da311677c4677ed9ebc689d859d05a422d65fb2c1324607fafd69b9"
+  }
+}

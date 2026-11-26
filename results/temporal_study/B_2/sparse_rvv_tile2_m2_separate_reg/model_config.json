@@ -1,0 +1,22 @@
+{
+  "cpu": "BaseO3CPU",
+  "vlen": 256,
+  "clocks": {
+    "board.clk_domain": "500"
+  },
+  "cache_sizes": {
+    "board.cache_hierarchy.l1d-cache-0": "32768",
+    "board.cache_hierarchy.l1d-cache-0.prefetcher.table_indexing_policy": "64",
+    "board.cache_hierarchy.l1d-cache-0.tags": "32768",
+    "board.cache_hierarchy.l1d-cache-0.tags.indexing_policy": "32768",
+    "board.cache_hierarchy.l1i-cache-0": "32768",
+    "board.cache_hierarchy.l1i-cache-0.prefetcher.table_indexing_policy": "64",
+    "board.cache_hierarchy.l1i-cache-0.tags": "32768",
+    "board.cache_hierarchy.l1i-cache-0.tags.indexing_policy": "32768",
+    "board.cache_hierarchy.l2-cache-0": "524288",
+    "board.cache_hierarchy.l2-cache-0.prefetcher.table_indexing_policy": "64",
+    "board.cache_hierarchy.l2-cache-0.tags": "524288",
+    "board.cache_hierarchy.l2-cache-0.tags.indexing_policy": "524288"
+  },
+  "model_sha256": "739a7406fa888cde7ab3ecfe7f7c8bfff0428d2c984984d25a42b318b8dc1598"
+}

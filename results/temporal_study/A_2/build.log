@@ -1,0 +1,10 @@
+[ 20%] Building CXX object CMakeFiles/snn_kernels.dir/src/temporal.cpp.o
+[ 40%] Linking CXX static library libsnn_kernels.a
+[ 60%] Built target snn_kernels
+[ 80%] Building CXX object CMakeFiles/snn_test.dir/tests/test_kernels.cpp.o
+[100%] Linking CXX executable snn_test
+[100%] Built target snn_test
+[ 60%] Built target snn_kernels
+[ 80%] Building CXX object CMakeFiles/snn_mnist.dir/src/mnist_inference.cpp.o
+[100%] Linking CXX executable snn_mnist
+[100%] Built target snn_mnist

@@ -1,0 +1,13 @@
+-- Configuring done (0.8s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/haris/HiPEAC-22/build-riscv-m5
+[ 16%] Building CXX object CMakeFiles/snn_kernels.dir/src/temporal_tile.cpp.o
+[ 33%] Linking CXX static library libsnn_kernels.a
+[ 66%] Built target snn_kernels
+[ 83%] Building CXX object CMakeFiles/snn_test.dir/tests/test_kernels.cpp.o
+[100%] Linking CXX executable snn_test
+[100%] Built target snn_test
+[ 66%] Built target snn_kernels
+[ 83%] Building CXX object CMakeFiles/snn_mnist.dir/src/mnist_inference.cpp.o
+[100%] Linking CXX executable snn_mnist
+[100%] Built target snn_mnist

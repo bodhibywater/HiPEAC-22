@@ -1,0 +1,15 @@
+Trace SHA256: d61e14aecd047848f7c8f0ced0a7756a582dc7ab52ac6706586685ec66e79e9a
+FP32, LMUL=1, VLEN=256
+Layer   B  Density%          S        U_B  Weight saved%  State/bias saved%
+L1      1     13.34     107061     107061            0.0               0.00
+L1      2     13.34     107061      60809        43.2015              50.00
+L1      4     13.34     107061      33253        68.9401              75.00
+L1      8     13.34     107061      17655        83.5094              87.50
+L1     16     13.34     107061       9190        91.4161              93.75
+L2      1     28.11      73678      73678            0.0               0.00
+L2      2     28.11      73678      49753        32.4724              50.00
+L2      4     28.11      73678      27998        61.9995              75.00
+L2      8     28.11      73678      14762        79.9642              87.50
+L2     16     28.11      73678       7610        89.6713              93.75
+CSV: /home/haris/hipeac-temporal-results/B_64/temporal_reuse.csv
+These are ideal explicit operation counts, not cache misses or speedups.

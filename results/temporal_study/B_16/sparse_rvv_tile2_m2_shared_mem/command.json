@@ -1,0 +1,14 @@
+[
+  "/home/haris/gem5-sim/build/RISCV/gem5.opt",
+  "--outdir=/home/haris/hipeac-temporal-results/B_16/sparse_rvv_tile2_m2_shared_mem",
+  "/home/haris/HiPEAC-22/gem5/run_o3.py",
+  "--binary",
+  "/home/haris/HiPEAC-22/build-riscv-m5/snn_mnist",
+  "--vlen",
+  "256",
+  "--",
+  "--trace",
+  "/home/haris/hipeac-temporal-results/B_16/trace_im.bin",
+  "--mode",
+  "sparse_rvv_tile2_m2_shared_mem"
+]
